@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>零距离文旅 - 船票分配系统</title>
+    <meta name="description" content="零距离文旅船票分配系统，高效的PDF文件匹配和分配解决方案">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="background-gradient"></div>
+
+    <header class="header">
+        <div class="container">
+            <h1 class="logo">
+                <span class="logo-icon">🚢</span>
+                零距离文旅 · 船票分配系统
+            </h1>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <div class="container">
+            <!-- Step Indicator -->
+            <div class="steps-indicator">
+                <div class="step active" data-step="1">
+                    <div class="step-number">1</div>
+                    <div class="step-label">上传压缩包</div>
+                </div>
+                <div class="step-line"></div>
+                <div class="step" data-step="2">
+                    <div class="step-number">2</div>
+                    <div class="step-label">上传Excel表格</div>
+                </div>
+                <div class="step-line"></div>
+                <div class="step" data-step="3">
+                    <div class="step-number">3</div>
+                    <div class="step-label">下载结果</div>
+                </div>
+            </div>
+
+            <!-- Upload Section -->
+            <div class="upload-section" id="archiveSection">
+                <div class="card glass-card">
+                    <div class="card-header">
+                        <h2>第一步：上传PDF压缩包</h2>
+                        <p>支持ZIP或RAR格式，最大200MB</p>
+                    </div>
+                    <div class="card-body">
+                        <div class="upload-area" id="archiveDropZone">
+                            <input type="file" id="archiveInput" accept=".zip,.rar" hidden>
+                            <div class="upload-icon">📦</div>
+                            <h3>拖拽文件到此处或点击上传</h3>
+                            <p>支持 .zip 和 .rar 格式</p>
+                            <button class="btn btn-primary" onclick="document.getElementById('archiveInput').click()">
+                                选择文件
+                            </button>
+                        </div>
+                        <div class="upload-progress" id="archiveProgress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="archiveProgressFill"></div>
+                            </div>
+                            <p class="progress-text" id="archiveProgressText">上传中...</p>
+                        </div>
+                        <div class="upload-success" id="archiveSuccess" style="display: none;">
+                            <div class="success-icon">✓</div>
+                            <p>压缩包上传成功！</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Excel Upload Section -->
+            <div class="upload-section" id="excelSection" style="display: none;">
+                <div class="card glass-card">
+                    <div class="card-header">
+                        <h2>第二步：上传Excel表格</h2>
+                        <p>表格需包含"房号"和"中文姓名"列</p>
+                    </div>
+                    <div class="card-body">
+                        <div class="upload-area" id="excelDropZone">
+                            <input type="file" id="excelInput" accept=".xlsx,.xls" multiple hidden>
+                            <div class="upload-icon">📊</div>
+                            <h3>拖拽Excel文件到此处或点击上传</h3>
+                            <p>支持 .xlsx 和 .xls 格式，可多选</p>
+                            <button class="btn btn-primary" onclick="document.getElementById('excelInput').click()">
+                                选择文件
+                            </button>
+                        </div>
+                        <div class="upload-progress" id="excelProgress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="excelProgressFill"></div>
+                            </div>
+                            <p class="progress-text" id="excelProgressText">处理中...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Section -->
+            <div class="results-section" id="resultsSection" style="display: none;">
+                <div class="card glass-card">
+                    <div class="card-header">
+                        <h2>处理完成</h2>
+                        <p>以下是已处理的Excel文件及其匹配结果</p>
+                    </div>
+                    <div class="card-body">
+                        <div id="downloadList" class="download-list">
+                            <!-- Download items will be inserted here dynamically -->
+                        </div>
+                        <div class="download-actions">
+                            <button class="btn btn-primary btn-large" id="continueBtn">
+                                <span class="btn-icon">➕</span>
+                                继续上传更多Excel文件
+                            </button>
+                            <button class="btn btn-secondary" onclick="location.reload()">
+                                重新开始
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Error Message -->
+            <div class="error-message" id="errorMessage" style="display: none;">
+                <div class="error-icon">⚠</div>
+                <p id="errorText"></p>
+                <button class="btn btn-secondary btn-small" onclick="hideError()">关闭</button>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2025 PDF智能匹配系统. 保留所有权利.</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+
+</html>

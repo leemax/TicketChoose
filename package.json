@@ -1,0 +1,21 @@
+{
+  "name": "pdf-matching-saas",
+  "version": "1.0.0",
+  "description": "SaaS application for matching PDFs against Excel data",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["pdf", "excel", "matching", "saas"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "adm-zip": "^0.5.10",
+    "node-unrar-js": "^2.0.0",
+    "xlsx": "^0.18.5",
+    "cors": "^2.8.5"
+  }
+}
