@@ -1,6 +1,7 @@
 // Global state
 let sessionId = null;
 let processedFiles = []; // Track all processed files
+let pendingDuplicates = null; // Track current duplicate resolution state
 
 // DOM Elements
 const archiveInput = document.getElementById('archiveInput');
@@ -283,6 +284,21 @@ async function handleExcelUpload() {
                 throw new Error(`处理 ${file.name} 失败: ${result.error || '未知错误'}`);
             }
 
+            // Check if there are duplicates that need resolution
+            if (result.hasDuplicates) {
+                console.log('检测到重名乘客，显示选择界面');
+
+                // Hide progress and reset
+                excelProgress.style.display = 'none';
+                excelDropZone.style.display = 'block';
+
+                // Show duplicate resolution modal
+                showDuplicateModal(result.duplicates, result.pendingId, file.name);
+
+                // Don't continue processing other files - wait for user to resolve
+                return;
+            }
+
             // Update processed files list
             if (result.allProcessed) {
                 processedFiles = result.allProcessed;
@@ -309,6 +325,9 @@ async function handleExcelUpload() {
     } catch (error) {
         console.error('Excel processing error:', error);
         showError('处理Excel文件失败: ' + error.message);
+
+        // Reset Excel input to allow retry
+        excelInput.value = '';
         resetExcelUpload();
     }
 }
@@ -325,6 +344,138 @@ continueBtn.addEventListener('click', () => {
     excelSection.style.display = 'block';
     updateStep(2);
 });
+
+// Duplicate Resolution Functions
+function showDuplicateModal(duplicates, pendingId, excelName) {
+    pendingDuplicates = { duplicates, pendingId, excelName };
+
+    const duplicateList = document.getElementById('duplicateList');
+    duplicateList.innerHTML = '';
+
+    duplicates.forEach((duplicate, index) => {
+        const item = document.createElement('div');
+        item.className = 'duplicate-item';
+
+        // Build options radio buttons
+        const optionsHtml = duplicate.options.map((option, optIndex) => `
+            <div class="pdf-option">
+                <input 
+                    type="radio" 
+                    id="dup-${index}-opt-${optIndex}" 
+                    name="duplicate-${index}" 
+                    value="${option.filename}"
+                    ${optIndex === 0 ? 'checked' : ''}
+                >
+                <label for="dup-${index}-opt-${optIndex}">
+                    <span class="option-room">房号: ${option.room}</span>
+                    <span class="option-filename">${option.filename}</span>
+                </label>
+            </div>
+        `).join('');
+
+        item.innerHTML = `
+            <div class="duplicate-header">
+                <div class="duplicate-name">
+                    <span class="name-icon">👤</span>
+                    <strong>${duplicate.name}</strong>
+                </div>
+                <div class="duplicate-idcard">
+                    身份证: ${duplicate.idCard}
+                </div>
+            </div>
+            <div class="duplicate-options">
+                <p class="options-label">请选择正确的船票 (找到${duplicate.options.length}个匹配):</p>
+                ${optionsHtml}
+            </div>
+        `;
+
+        duplicateList.appendChild(item);
+    });
+
+    document.getElementById('duplicateModal').style.display = 'flex';
+}
+
+function closeDuplicateModal() {
+    document.getElementById('duplicateModal').style.display = 'none';
+    pendingDuplicates = null;
+}
+
+async function confirmDuplicates() {
+    if (!pendingDuplicates) return;
+
+    const { duplicates, pendingId } = pendingDuplicates;
+    const selections = [];
+
+    // Collect user selections
+    duplicates.forEach((duplicate, index) => {
+        const selectedRadio = document.querySelector(`input[name="duplicate-${index}"]:checked`);
+        if (selectedRadio) {
+            selections.push({
+                name: duplicate.name,
+                idCard: duplicate.idCard,
+                selectedFilename: selectedRadio.value
+            });
+        }
+    });
+
+    // Validate all selections made
+    if (selections.length !== duplicates.length) {
+        showError('请为所有重名乘客选择船票');
+        return;
+    }
+
+    // Close modal and show processing
+    closeDuplicateModal();
+    excelDropZone.style.display = 'none';
+    excelProgress.style.display = 'block';
+    excelProgressFill.style.width = '50%';
+    excelProgressText.textContent = '正在处理您的选择...';
+
+    try {
+        const response = await fetch('/api/resolve-duplicates', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                sessionId: sessionId,
+                pendingId: pendingId,
+                selections: selections
+            })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || '处理失败');
+        }
+
+        // Update processed files list
+        if (result.allProcessed) {
+            processedFiles = result.allProcessed;
+        }
+
+        excelProgressFill.style.width = '100%';
+        excelProgressText.textContent = '完成！';
+
+        // Show results
+        setTimeout(() => {
+            updateStep(3);
+            excelSection.style.display = 'none';
+            resultsSection.style.display = 'block';
+            updateDownloadList();
+            resetExcelUpload();
+        }, 800);
+
+    } catch (error) {
+        console.error('Duplicate resolution error:', error);
+        showError('处理重名选择失败: ' + error.message);
+        resetExcelUpload();
+    }
+}
+
+// Attach confirm button handler
+document.getElementById('confirmDuplicatesBtn').addEventListener('click', confirmDuplicates);
 
 // Initialize
 updateStep(1);

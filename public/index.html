@@ -128,6 +128,27 @@
                 </div>
             </div>
 
+            <!-- Duplicate Resolution Modal -->
+            <div class="modal" id="duplicateModal" style="display: none;">
+                <div class="modal-overlay" onclick="closeDuplicateModal()"></div>
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2>🔍 检测到重名乘客</h2>
+                        <p>请为以下乘客选择正确的船票</p>
+                    </div>
+                    <div class="modal-body" id="duplicateList">
+                        <!-- Duplicate items will be inserted here dynamically -->
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-primary btn-large" id="confirmDuplicatesBtn">
+                            <span class="btn-icon">✓</span>
+                            确认选择
+                        </button>
+                        <button class="btn btn-secondary" onclick="closeDuplicateModal()">取消</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Error Message -->
             <div class="error-message" id="errorMessage" style="display: none;">
                 <div class="error-icon">⚠</div>
