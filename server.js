@@ -67,6 +67,18 @@ async function extractArchive(archivePath, extractPath) {
 }
 
 // Helper function to parse Excel
+// Helper function to format name (insert spaces for Chinese names)
+function formatName(name) {
+    if (!name) return '';
+    const str = name.toString().trim();
+    // Check if contains Chinese characters
+    if (/[\u4e00-\u9fa5]/.test(str)) {
+        return str.split('').join(' ');
+    }
+    return str;
+}
+
+// Helper function to parse Excel
 function parseExcel(excelPath) {
     const workbook = XLSX.readFile(excelPath);
     const sheetName = workbook.SheetNames[0];
@@ -102,10 +114,12 @@ function parseExcel(excelPath) {
         return str.includes('房号') || str.includes('房间') || str.includes('room');
     });
 
-    // Name column - priority-based fuzzy match
-    // Priority: exact matches > partial matches > keyword matches
-    let nameIndex = -1;
-    let namePriority = 0;
+    // Name columns detection
+    // We look for both "Full Name" (Chinese) and "Split Name" (Surname + Given Name)
+
+    // 1. Find Chinese Name / Full Name column
+    let chineseNameIndex = -1;
+    let maxPriority = 0;
 
     headers.forEach((h, index) => {
         if (!h) return;
@@ -125,32 +139,26 @@ function parseExcel(excelPath) {
         else if (str.includes('姓名') || str.includes('中文名')) {
             priority = 80;
         }
-        // Lower priority: contains "名字"
-        else if (str.includes('名字')) {
-            priority = 70;
-        }
-        // Lowest priority: contains "名" but not other non-name keywords
-        else if (str.includes('名') &&
-            !str.includes('拼音') &&
-            !str.includes('英文') &&
-            !str.includes('first') &&
-            !lowerStr.includes('given')) {
-            priority = 60;
-        }
-        // English name columns (lower priority)
-        else if (lowerStr.includes('name') &&
-            !lowerStr.includes('first') &&
-            !lowerStr.includes('last') &&
-            !lowerStr.includes('given') &&
-            !lowerStr.includes('surname')) {
-            priority = 50;
-        }
 
-        // Update if this column has higher priority
-        if (priority > namePriority) {
-            nameIndex = index;
-            namePriority = priority;
+        if (priority > maxPriority) {
+            chineseNameIndex = index;
+            maxPriority = priority;
         }
+    });
+
+    // 2. Find Surname and Given Name columns (Pinyin/English)
+    const surnameIndex = headers.findIndex(h => {
+        if (!h) return false;
+        const str = h.toString();
+        const lowerStr = str.toLowerCase();
+        return (str.includes('拼音姓') || lowerStr.includes('surname') || lowerStr.includes('last name')) && !str.includes('名');
+    });
+
+    const givenNameIndex = headers.findIndex(h => {
+        if (!h) return false;
+        const str = h.toString();
+        const lowerStr = str.toLowerCase();
+        return (str.includes('拼音名') || lowerStr.includes('given name') || lowerStr.includes('first name')) && !str.includes('姓');
     });
 
     // ID card column - enhanced fuzzy match with more variations
@@ -188,30 +196,15 @@ function parseExcel(excelPath) {
     console.log(`=== 身份证列检测结果: ${idCardIndex} ===\n`);
 
     console.log(`房号列索引: ${roomIndex} ${roomIndex !== -1 ? '("' + headers[roomIndex] + '")' : ''}`);
-    console.log(`姓名列索引: ${nameIndex} ${nameIndex !== -1 ? '("' + headers[nameIndex] + '")' : ''}`);
+    console.log(`中文姓名列索引: ${chineseNameIndex} ${chineseNameIndex !== -1 ? '("' + headers[chineseNameIndex] + '")' : ''}`);
+    console.log(`拼音姓索引: ${surnameIndex} ${surnameIndex !== -1 ? '("' + headers[surnameIndex] + '")' : ''}`);
+    console.log(`拼音名索引: ${givenNameIndex} ${givenNameIndex !== -1 ? '("' + headers[givenNameIndex] + '")' : ''}`);
     console.log(`身份证列索引: ${idCardIndex} ${idCardIndex !== -1 ? '("' + headers[idCardIndex] + '")' : ''}`);
 
-    if (nameIndex === -1) {
-        // If no single name column found, try to find split columns (surname + given name)
-        const surnameIndex = headers.findIndex(h => {
-            if (!h) return false;
-            const str = h.toString();
-            return str.includes('姓') && !str.includes('名');
-        });
-        const givenNameIndex = headers.findIndex(h => {
-            if (!h) return false;
-            const str = h.toString();
-            return str.includes('名') && !str.includes('姓');
-        });
-
-        if (surnameIndex !== -1 && givenNameIndex !== -1) {
-            console.log(`检测到分离的姓名列 - 姓: ${surnameIndex}, 名: ${givenNameIndex}`);
-            console.log('将自动合并姓和名');
-        } else {
-            // Show available columns to help user debug
-            console.log('可用的列名:', headers.filter(h => h).map((h, i) => `${i}: "${h}"`).join(', '));
-            throw new Error('无法找到必需的列：姓名（或姓+名的组合）');
-        }
+    if (chineseNameIndex === -1 && (surnameIndex === -1 || givenNameIndex === -1)) {
+        // Show available columns to help user debug
+        console.log('可用的列名:', headers.filter(h => h).map((h, i) => `${i}: "${h}"`).join(', '));
+        throw new Error('无法找到必需的列：姓名（中文姓名 或 拼音姓+拼音名）');
     }
 
     // Determine matching mode
@@ -243,57 +236,52 @@ function parseExcel(excelPath) {
     for (let i = headerRowIndex + 1; i < data.length; i++) {
         const row = data[i];
 
-        if (matchingMode === 'room-name') {
-            // Room + Name mode (existing logic)
-            let currentRoom = row[roomIndex];
+        // 1. Get Room
+        let currentRoom = null;
+        if (roomIndex !== -1) {
+            currentRoom = row[roomIndex];
             if (currentRoom !== undefined && currentRoom !== null && currentRoom !== '') {
                 currentRoom = currentRoom.toString().trim();
                 lastRoom = currentRoom;
             } else if (lastRoom) {
                 currentRoom = lastRoom;
             }
+        }
 
-            let currentName;
-            if (nameIndex !== -1) {
-                currentName = row[nameIndex];
-            } else {
-                // Merge surname + given name if split
-                const surnameIndex = headers.findIndex(h => h && h.toString().includes('姓') && !h.toString().includes('名'));
-                const givenNameIndex = headers.findIndex(h => h && h.toString().includes('名') && !h.toString().includes('姓'));
-                const surname = row[surnameIndex] ? row[surnameIndex].toString().trim() : '';
-                const givenName = row[givenNameIndex] ? row[givenNameIndex].toString().trim() : '';
-                currentName = surname + givenName;
+        // 2. Get Name (with fallback and formatting)
+        let currentName = '';
+
+        // Try Chinese name first
+        if (chineseNameIndex !== -1 && row[chineseNameIndex]) {
+            currentName = formatName(row[chineseNameIndex]);
+        }
+
+        // If empty, try Pinyin/English name
+        if (!currentName && surnameIndex !== -1 && givenNameIndex !== -1) {
+            const surname = row[surnameIndex] ? row[surnameIndex].toString().trim() : '';
+            const givenName = row[givenNameIndex] ? row[givenNameIndex].toString().trim() : '';
+            if (surname || givenName) {
+                currentName = `${surname} ${givenName}`.trim();
             }
+        }
 
+        // 3. Get ID Card
+        const currentIdCard = idCardIndex !== -1 ? row[idCardIndex] : null;
+
+        if (matchingMode === 'room-name') {
             console.log(`行${i}: 房号=${currentRoom}, 姓名=${currentName}`);
-
             if (currentRoom && currentName) {
                 records.push({
                     room: currentRoom,
-                    name: currentName.toString().trim()
+                    name: currentName
                 });
             }
         } else {
-            // Name-only mode (new logic)
-            let currentName;
-            if (nameIndex !== -1) {
-                currentName = row[nameIndex];
-            } else {
-                // Merge surname + given name if split
-                const surnameIndex = headers.findIndex(h => h && h.toString().includes('姓') && !h.toString().includes('名'));
-                const givenNameIndex = headers.findIndex(h => h && h.toString().includes('名') && !h.toString().includes('姓'));
-                const surname = row[surnameIndex] ? row[surnameIndex].toString().trim() : '';
-                const givenName = row[givenNameIndex] ? row[givenNameIndex].toString().trim() : '';
-                currentName = surname + givenName;
-            }
-            const currentIdCard = row[idCardIndex];
-
             console.log(`行${i}: 姓名=${currentName}, 身份证=${currentIdCard}`);
-
             if (currentName && currentIdCard) {
                 records.push({
-                    name: currentName.toString().trim(),
-                    idCard: currentIdCard.toString().trim()
+                    name: currentName,
+                    idCard: currentIdCard ? currentIdCard.toString().trim() : ''
                 });
             }
         }
@@ -321,10 +309,18 @@ function extractInfoFromFilename(filename) {
     return null;
 }
 
+// Helper function to normalize name for fuzzy matching (O vs 0)
+function normalizeName(name) {
+    if (!name) return '';
+    return name.toString()
+        .toUpperCase()
+        .replace(/0/g, 'O') // Replace all zeros with letter O
+        .trim();
+}
+
 // Helper function to find matching PDFs
-function findMatchingPDFs(pdfDir, parseResult) {
+function findMatchingPDFs(pdfDir, parseResult, session) {
     const { mode, records: excelRecords } = parseResult;
-    const allFiles = fs.readdirSync(pdfDir, { recursive: true });
     const matchedFiles = [];
     const matchedRecords = new Set();
     const duplicates = []; // Track passengers with duplicate name matches
@@ -332,33 +328,50 @@ function findMatchingPDFs(pdfDir, parseResult) {
     console.log(`\n=== 开始匹配PDF文件 ===`);
     console.log(`匹配模式: ${mode}`);
     console.log(`Excel记录数: ${excelRecords.length}`);
-    console.log(`Excel记录:`, excelRecords);
-    console.log(`找到的文件总数: ${allFiles.length}`);
 
-    // Build PDF index
-    const pdfFiles = [];
-    allFiles.forEach(file => {
-        if (file.toLowerCase().endsWith('.pdf')) {
-            const filename = path.basename(file);
-            const info = extractInfoFromFilename(filename);
-            if (info) {
-                pdfFiles.push({
-                    path: path.join(pdfDir, file),
-                    filename: filename,
-                    room: info.room,
-                    name: info.name
-                });
+    // Use cached PDF files if available, otherwise scan and cache
+    let pdfFiles;
+    if (session && session.pdfFiles) {
+        console.log('使用缓存的PDF文件列表');
+        pdfFiles = session.pdfFiles;
+    } else {
+        console.log('正在扫描PDF文件目录...');
+        const allFiles = fs.readdirSync(pdfDir, { recursive: true });
+        console.log(`找到的文件总数: ${allFiles.length}`);
+
+        // Build PDF index
+        pdfFiles = [];
+        allFiles.forEach(file => {
+            if (file.toLowerCase().endsWith('.pdf')) {
+                const filename = path.basename(file);
+                const info = extractInfoFromFilename(filename);
+                if (info) {
+                    pdfFiles.push({
+                        path: path.join(pdfDir, file),
+                        filename: filename,
+                        room: info.room,
+                        name: info.name,
+                        normalizedName: normalizeName(info.name) // Pre-calculate normalized name
+                    });
+                }
             }
+        });
+
+        // Cache the result if session is provided
+        if (session) {
+            session.pdfFiles = pdfFiles;
+            console.log('PDF文件列表已缓存');
         }
-    });
+    }
 
     console.log(`PDF文件总数: ${pdfFiles.length}`);
 
     if (mode === 'room-name') {
         // Original matching logic: room + name
         excelRecords.forEach((record, index) => {
+            const normalizedRecordName = normalizeName(record.name);
             const matchedPdf = pdfFiles.find(pdf =>
-                pdf.room === record.room && pdf.name === record.name
+                pdf.room === record.room && pdf.normalizedName === normalizedRecordName
             );
 
             if (matchedPdf) {
@@ -372,8 +385,10 @@ function findMatchingPDFs(pdfDir, parseResult) {
     } else {
         // New matching logic: name only
         excelRecords.forEach((record, index) => {
-            // Find all PDFs matching this name
-            const matchingPdfs = pdfFiles.filter(pdf => pdf.name === record.name);
+            const normalizedRecordName = normalizeName(record.name);
+
+            // Find all PDFs matching this name (fuzzy match)
+            const matchingPdfs = pdfFiles.filter(pdf => pdf.normalizedName === normalizedRecordName);
 
             if (matchingPdfs.length === 0) {
                 console.log(`✗ 未匹配: ${record.name} (身份证: ${record.idCard})`);
@@ -444,7 +459,7 @@ function createOutputZip(matchedFiles, outputPath) {
 
 // Helper function to clean up old files
 function cleanupOldFiles() {
-    const maxAge = 3600000; // 1 hour
+    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
     const now = Date.now();
 
     [uploadsDir, tempDir, outputDir].forEach(dir => {
@@ -466,7 +481,7 @@ function cleanupOldFiles() {
 }
 
 // Cleanup interval
-setInterval(cleanupOldFiles, 600000); // Every 10 minutes
+setInterval(cleanupOldFiles, 60 * 60 * 1000); // Every 1 hour
 
 // Routes
 
@@ -487,7 +502,8 @@ app.post('/api/upload-archive', upload.single('archive'), async (req, res) => {
         sessions.set(sessionId, {
             archivePath: req.file.path,
             extractPath: extractPath,
-            createdAt: Date.now()
+            createdAt: Date.now(),
+            pdfFiles: null // Initialize cache
         });
 
         res.json({
@@ -537,8 +553,8 @@ app.post('/api/upload-excel', upload.single('excel'), async (req, res) => {
             return res.status(400).json({ error: 'Excel文件中没有找到有效数据' });
         }
 
-        // Find matching PDFs - pass the entire parseResult
-        const matchResult = findMatchingPDFs(session.extractPath, parseResult);
+        // Find matching PDFs - pass the entire parseResult AND session
+        const matchResult = findMatchingPDFs(session.extractPath, parseResult, session);
         const matchedFiles = matchResult.matchedFiles;
         const unmatchedPassengers = matchResult.unmatchedPassengers;
         const duplicates = matchResult.duplicates;
@@ -569,22 +585,21 @@ app.post('/api/upload-excel', upload.single('excel'), async (req, res) => {
         }
 
         // No duplicates, proceed as normal
-        if (matchedFiles.length === 0) {
-            fs.unlinkSync(req.file.path); // Cleanup
-            return res.json({
-                success: true,
-                matched: 0,
-                total: parseResult.records.length,
-                excelName: originalFilename,
-                unmatchedPassengers: unmatchedPassengers,
-                message: '没有找到匹配的PDF文件'
-            });
-        }
 
-        // Create output ZIP with Excel filename
-        const outputFilename = `${excelBaseName}.zip`;
-        const outputPath = path.join(outputDir, `${sessionId}-${Date.now()}-${outputFilename}`);
-        createOutputZip(matchedFiles, outputPath);
+        let outputPath = null;
+        let outputFilename = null;
+        let downloadId = null;
+
+        if (matchedFiles.length > 0) {
+            // Create output ZIP with Excel filename
+            outputFilename = `${excelBaseName}.zip`;
+            outputPath = path.join(outputDir, `${sessionId}-${Date.now()}-${outputFilename}`);
+            createOutputZip(matchedFiles, outputPath);
+            downloadId = path.basename(outputPath, '.zip');
+        } else {
+            // No matches - just cleanup
+            fs.unlinkSync(req.file.path);
+        }
 
         // Create file record
         const fileRecord = {
@@ -596,14 +611,16 @@ app.post('/api/upload-excel', upload.single('excel'), async (req, res) => {
             unmatchedCount: unmatchedPassengers.length,
             unmatchedPassengers: unmatchedPassengers,
             processedAt: Date.now(),
-            downloadId: path.basename(outputPath, '.zip')
+            downloadId: downloadId
         };
 
         // Add to session's processed files
         session.processedFiles.push(fileRecord);
 
-        console.log(`成功处理: ${originalFilename}, 匹配 ${matchedFiles.length}/${parseResult.records.length} 个PDF`);
-        if (unmatchedPassengers.length > 0) {
+        console.log(`处理完成: ${originalFilename}, 匹配 ${matchedFiles.length}/${parseResult.records.length} 个PDF`);
+        if (matchedFiles.length === 0) {
+            console.log(`⚠️  警告: 未找到任何匹配的PDF文件`);
+        } else if (unmatchedPassengers.length > 0) {
             console.log(`⚠️  警告: ${unmatchedPassengers.length} 位游客未找到船票`);
         }
 
@@ -613,22 +630,26 @@ app.post('/api/upload-excel', upload.single('excel'), async (req, res) => {
             total: parseResult.records.length,
             excelName: originalFilename,
             unmatchedPassengers: unmatchedPassengers,
-            downloadUrl: `/api/download/${fileRecord.downloadId}`,
+            downloadUrl: downloadId ? `/api/download/${downloadId}` : null,
             downloadFilename: outputFilename,
-            message: `成功匹配 ${matchedFiles.length} 个PDF文件${unmatchedPassengers.length > 0 ? `，${unmatchedPassengers.length} 位游客未找到船票` : ''}`,
+            message: matchedFiles.length === 0
+                ? '未找到匹配的PDF文件'
+                : `成功匹配 ${matchedFiles.length} 个PDF文件${unmatchedPassengers.length > 0 ? `，${unmatchedPassengers.length} 位游客未找到船票` : ''}`,
             allProcessed: session.processedFiles.map(f => ({
                 excelName: f.excelName,
                 matched: f.matchedCount,
                 total: f.totalCount,
                 unmatchedCount: f.unmatchedCount,
                 unmatchedPassengers: f.unmatchedPassengers,
-                downloadUrl: `/api/download/${f.downloadId}`,
+                downloadUrl: f.downloadId ? `/api/download/${f.downloadId}` : null,
                 downloadFilename: f.outputFilename
             }))
         });
 
-        // Cleanup Excel file
-        fs.unlinkSync(req.file.path);
+        // Cleanup Excel file if it wasn't already cleaned up (e.g. if matched > 0)
+        if (matchedFiles.length > 0 && fs.existsSync(req.file.path)) {
+            fs.unlinkSync(req.file.path);
+        }
 
     } catch (error) {
         console.error('Excel processing error:', error);

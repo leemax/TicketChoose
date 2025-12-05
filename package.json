@@ -4,18 +4,27 @@
   "description": "SaaS application for matching PDFs against Excel data",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "npx pm2 start server.js --name pdf-matching-saas --watch --no-daemon",
+    "stop": "npx pm2 stop pdf-matching-saas",
+    "restart": "npx pm2 restart pdf-matching-saas",
+    "logs": "npx pm2 logs pdf-matching-saas",
     "dev": "node server.js"
   },
-  "keywords": ["pdf", "excel", "matching", "saas"],
+  "keywords": [
+    "pdf",
+    "excel",
+    "matching",
+    "saas"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "adm-zip": "^0.5.10",
+    "cors": "^2.8.5",
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
-    "adm-zip": "^0.5.10",
     "node-unrar-js": "^2.0.0",
-    "xlsx": "^0.18.5",
-    "cors": "^2.8.5"
+    "pm2": "^6.0.14",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-latest/xlsx-latest.tgz"
   }
 }

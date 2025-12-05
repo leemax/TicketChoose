@@ -66,7 +66,7 @@ function updateDownloadList() {
         let unmatchedWarning = '';
         if (file.unmatchedCount && file.unmatchedCount > 0) {
             const passengerList = file.unmatchedPassengers.map(p =>
-                `<li>房号 ${p.room} - ${p.name}</li>`
+                `<li>${p.room ? `房号 ${p.room}` : ''} ${p.name} ${p.idCard ? `(${p.idCard})` : ''}</li>`
             ).join('');
 
             unmatchedWarning = `
@@ -83,16 +83,37 @@ function updateDownloadList() {
             `;
         }
 
+        // Determine status and action button
+        let statusHtml = '';
+        let actionHtml = '';
+
+        if (file.matched === 0) {
+            // No matches found
+            statusHtml = `<div class="download-stats error-text">未找到匹配的PDF文件</div>`;
+            actionHtml = `
+                <button class="btn btn-secondary btn-small" disabled>
+                    <span class="btn-icon">⚠️</span>
+                    无匹配文件
+                </button>
+            `;
+        } else {
+            // Matches found
+            statusHtml = `<div class="download-stats">匹配: ${file.matched}/${file.total} 个PDF</div>`;
+            actionHtml = `
+                <button class="btn btn-success btn-small" onclick="downloadFile('${file.downloadUrl}')">
+                    <span class="btn-icon">⬇</span>
+                    下载 ${file.downloadFilename}
+                </button>
+            `;
+        }
+
         item.innerHTML = `
             <div class="download-info">
                 <div class="download-name">${file.excelName}</div>
-                <div class="download-stats">匹配: ${file.matched}/${file.total} 个PDF</div>
+                ${statusHtml}
                 ${unmatchedWarning}
             </div>
-            <button class="btn btn-success btn-small" onclick="downloadFile('${file.downloadUrl}')">
-                <span class="btn-icon">⬇</span>
-                下载 ${file.downloadFilename}
-            </button>
+            ${actionHtml}
         `;
         downloadList.appendChild(item);
     });
