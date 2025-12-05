@@ -4,7 +4,7 @@
   "description": "SaaS application for matching PDFs against Excel data",
   "main": "server.js",
   "scripts": {
-    "start": "npx pm2 start server.js --name pdf-matching-saas --watch --no-daemon",
+    "start": "npx pm2 start server.js --name pdf-matching-saas --no-daemon",
     "stop": "npx pm2 stop pdf-matching-saas",
     "restart": "npx pm2 restart pdf-matching-saas",
     "logs": "npx pm2 logs pdf-matching-saas",

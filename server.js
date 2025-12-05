@@ -5,7 +5,8 @@ const XLSX = require('xlsx');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
-const { createExtractorFromFile } = require('node-unrar-js');
+const child_process = require('child_process');
+const { createExtractorFromFile } = require('node-unrar-js'); // Removed to prevent crash
 
 const app = express();
 const PORT = 3000;
@@ -47,22 +48,42 @@ const upload = multer({
 // Each session can have multiple processed Excel files
 const sessions = new Map();
 
+// Helper function to check if command exists
+function commandExists(command) {
+    try {
+        child_process.execSync(`which ${command}`, { stdio: 'ignore' });
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+
 // Helper function to extract archive
 async function extractArchive(archivePath, extractPath) {
     const ext = path.extname(archivePath).toLowerCase();
 
-    if (ext === '.zip') {
-        const zip = new AdmZip(archivePath);
-        zip.extractAllTo(extractPath, true);
-    } else if (ext === '.rar') {
-        const extractor = await createExtractorFromFile({
-            filepath: archivePath,
-            targetPath: extractPath
-        });
+    // Ensure extract directory exists
+    if (!fs.existsSync(extractPath)) {
+        fs.mkdirSync(extractPath, { recursive: true });
+    }
 
-        [...extractor.extract().files];
-    } else {
-        throw new Error('Unsupported archive format');
+    try {
+        if (ext === '.zip') {
+            const zip = new AdmZip(archivePath);
+            zip.extractAllTo(extractPath, true);
+        } else if (ext === '.rar') {
+            const extractor = await createExtractorFromFile({
+                filepath: archivePath,
+                targetPath: extractPath
+            });
+
+            [...extractor.extract().files];
+        } else {
+            throw new Error('Unsupported archive format');
+        }
+    } catch (error) {
+        console.error('Extraction error:', error);
+        throw error;
     }
 }
 
@@ -309,11 +330,12 @@ function extractInfoFromFilename(filename) {
     return null;
 }
 
-// Helper function to normalize name for fuzzy matching (O vs 0)
+// Helper function to normalize name for fuzzy matching (O vs 0, and remove spaces)
 function normalizeName(name) {
     if (!name) return '';
     return name.toString()
         .toUpperCase()
+        .replace(/\s+/g, '') // Remove all spaces
         .replace(/0/g, 'O') // Replace all zeros with letter O
         .trim();
 }
@@ -335,24 +357,51 @@ function findMatchingPDFs(pdfDir, parseResult, session) {
         console.log('使用缓存的PDF文件列表');
         pdfFiles = session.pdfFiles;
     } else {
-        console.log('正在扫描PDF文件目录...');
-        const allFiles = fs.readdirSync(pdfDir, { recursive: true });
+        console.log(`正在扫描PDF文件目录: ${pdfDir}`);
+        if (!fs.existsSync(pdfDir)) {
+            console.error(`目录不存在: ${pdfDir}`);
+            return { matchedFiles: [], unmatchedPassengers: [], duplicates: [] };
+        }
+
+        // Manual recursive file scanning function
+        function getAllFiles(dirPath, arrayOfFiles) {
+            let files = fs.readdirSync(dirPath);
+
+            arrayOfFiles = arrayOfFiles || [];
+
+            files.forEach(function (file) {
+                if (fs.statSync(dirPath + "/" + file).isDirectory()) {
+                    arrayOfFiles = getAllFiles(dirPath + "/" + file, arrayOfFiles);
+                } else {
+                    arrayOfFiles.push(path.join(dirPath, file));
+                }
+            });
+
+            return arrayOfFiles;
+        }
+
+        const allFiles = getAllFiles(pdfDir);
         console.log(`找到的文件总数: ${allFiles.length}`);
+        if (allFiles.length > 0) {
+            console.log(`前5个文件: ${allFiles.slice(0, 5).map(f => path.basename(f)).join(', ')}`);
+        }
 
         // Build PDF index
         pdfFiles = [];
-        allFiles.forEach(file => {
-            if (file.toLowerCase().endsWith('.pdf')) {
-                const filename = path.basename(file);
+        allFiles.forEach(filePath => {
+            if (filePath.toLowerCase().endsWith('.pdf')) {
+                const filename = path.basename(filePath);
                 const info = extractInfoFromFilename(filename);
                 if (info) {
                     pdfFiles.push({
-                        path: path.join(pdfDir, file),
+                        path: filePath,
                         filename: filename,
                         room: info.room,
                         name: info.name,
                         normalizedName: normalizeName(info.name) // Pre-calculate normalized name
                     });
+                } else {
+                    // console.log(`无法解析文件名: ${filename}`);
                 }
             }
         });
@@ -364,7 +413,7 @@ function findMatchingPDFs(pdfDir, parseResult, session) {
         }
     }
 
-    console.log(`PDF文件总数: ${pdfFiles.length}`);
+    console.log(`有效PDF文件总数: ${pdfFiles.length}`);
 
     if (mode === 'room-name') {
         // Original matching logic: room + name
