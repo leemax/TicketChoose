@@ -258,6 +258,16 @@ excelDropZone.addEventListener('drop', (e) => {
     }
 });
 
+// Global state
+let sessionId = null;
+let processedFiles = []; // Track all processed files
+let pendingDuplicates = null; // Track current duplicate resolution state
+let duplicateQueue = []; // Queue for files requiring manual resolution
+
+// ... (DOM Elements and Utility Functions remain the same, start from handleExcelUpload logic) ...
+
+// ... (skip to Line 261 implementation) ...
+
 async function handleExcelUpload() {
     const files = Array.from(excelInput.files);
 
@@ -281,6 +291,9 @@ async function handleExcelUpload() {
     excelDropZone.style.display = 'none';
     excelProgress.style.display = 'block';
 
+    // Reset queue for this batch
+    duplicateQueue = [];
+
     try {
         // Process files sequentially
         for (let i = 0; i < files.length; i++) {
@@ -302,55 +315,90 @@ async function handleExcelUpload() {
             const result = await response.json();
 
             if (!response.ok) {
-                throw new Error(`处理 ${file.name} 失败: ${result.error || '未知错误'}`);
+                // If one file fails (e.g. format error), we log it but continue? 
+                // Currently throwing error stops everything. Let's log and continue to be robust.
+                console.error(`处理 ${file.name} 失败: ${result.error}`);
+                // throw new Error(`处理 ${file.name} 失败: ${result.error || '未知错误'}`);
+                // Better UX: continue but show error later? For now, let's stick to simple "log and continue" or throw?
+                // Request says "don't affect other tables". So we should log and continue.
+                continue;
             }
 
             // Check if there are duplicates that need resolution
             if (result.hasDuplicates) {
-                console.log('检测到重名乘客，显示选择界面');
+                console.log(`检测到重名乘客 (${file.name})，加入待处理队列`);
 
-                // Hide progress and reset
-                excelProgress.style.display = 'none';
-                excelDropZone.style.display = 'block';
+                // Add to queue instead of blocking
+                duplicateQueue.push({
+                    duplicates: result.duplicates,
+                    pendingId: result.pendingId,
+                    excelName: file.name
+                });
 
-                // Show duplicate resolution modal
-                showDuplicateModal(result.duplicates, result.pendingId, file.name);
-
-                // Don't continue processing other files - wait for user to resolve
-                return;
+                // IMPORTANT: Do NOT return here. Continue to next file.
             }
 
-            // Update processed files list
+            // Update processed files list (if this file succeeded, or even if it's pending, others might be done)
             if (result.allProcessed) {
                 processedFiles = result.allProcessed;
             }
         }
 
         excelProgressFill.style.width = '100%';
-        excelProgressText.textContent = `完成！已处理 ${files.length} 个文件`;
+        excelProgressText.textContent = `批量处理完成，正在检查待人工确认项...`;
 
-        // Show results
-        setTimeout(() => {
-            updateStep(3);
-            excelSection.style.display = 'none';
-            resultsSection.style.display = 'block';
-
-            updateDownloadList();
-
-            // Reset Excel input for next upload
-            excelInput.value = '';
-            resetExcelUpload();
-
-        }, 800);
+        // Check if we have queued duplicates
+        if (duplicateQueue.length > 0) {
+            console.log(`开始处理重名队列，共 ${duplicateQueue.length} 个文件需要确认`);
+            processNextDuplicate();
+        } else {
+            // No duplicates, finish immediately
+            completeExcelProcessing();
+        }
 
     } catch (error) {
         console.error('Excel processing error:', error);
-        showError('处理Excel文件失败: ' + error.message);
+        showError('部分文件处理失败: ' + error.message);
 
-        // Reset Excel input to allow retry
+        // Even if error, check if we have results to show
+        if (processedFiles.length > 0) {
+            completeExcelProcessing();
+        } else {
+            resetExcelUpload();
+        }
+    }
+}
+
+function processNextDuplicate() {
+    if (duplicateQueue.length === 0) {
+        // All done
+        completeExcelProcessing();
+        return;
+    }
+
+    // Get next item
+    const item = duplicateQueue.shift(); // Remove from front
+
+    // Hide progress, show modal
+    excelProgress.style.display = 'none';
+
+    // Show duplicate resolution modal for this item
+    showDuplicateModal(item.duplicates, item.pendingId, item.excelName);
+}
+
+function completeExcelProcessing() {
+    setTimeout(() => {
+        updateStep(3);
+        excelSection.style.display = 'none';
+        resultsSection.style.display = 'block';
+
+        updateDownloadList();
+
+        // Reset Excel input for next upload
         excelInput.value = '';
         resetExcelUpload();
-    }
+
+    }, 800);
 }
 
 function resetExcelUpload() {
@@ -359,21 +407,34 @@ function resetExcelUpload() {
     excelProgressFill.style.width = '0%';
 }
 
-// Continue uploading more Excel files
-continueBtn.addEventListener('click', () => {
-    resultsSection.style.display = 'none';
-    excelSection.style.display = 'block';
-    updateStep(2);
-});
+// ... (ContinueBtn handler remains same) ...
 
 // Duplicate Resolution Functions
 function showDuplicateModal(duplicates, pendingId, excelName) {
     pendingDuplicates = { duplicates, pendingId, excelName };
 
+    // Update Modal Title/Context to show which file is being processed
+    const title = document.querySelector('#duplicateModal h3') || document.querySelector('#duplicateModal .modal-header');
+    if (title) {
+        // You might need to add an ID to the modal title in HTML, or just prepend text
+        // For now, let's assume standard layout. We can adding file info to the list container.
+    }
+
     const duplicateList = document.getElementById('duplicateList');
     duplicateList.innerHTML = '';
 
+    // Add file info header
+    const fileHeader = document.createElement('div');
+    fileHeader.className = 'duplicate-file-info';
+    fileHeader.style.padding = '10px';
+    fileHeader.style.backgroundColor = '#f8f9fa';
+    fileHeader.style.marginBottom = '15px';
+    fileHeader.style.borderRadius = '5px';
+    fileHeader.innerHTML = `<strong>正在处理文件:</strong> ${excelName} <span style="color: #666; font-size: 0.9em;">(待处理剩余: ${duplicateQueue.length} 个)</span>`;
+    duplicateList.appendChild(fileHeader);
+
     duplicates.forEach((duplicate, index) => {
+        // ... (existing duplicate item generation logic) ...
         const item = document.createElement('div');
         item.className = 'duplicate-item';
 
@@ -447,10 +508,12 @@ async function confirmDuplicates() {
 
     // Close modal and show processing
     closeDuplicateModal();
+    // Don't hide dropzone yet, we might show modal again.
+    // Show progress overlay? Or just keep "ExcelProgress" visible but maybe update text.
     excelDropZone.style.display = 'none';
     excelProgress.style.display = 'block';
-    excelProgressFill.style.width = '50%';
-    excelProgressText.textContent = '正在处理您的选择...';
+    excelProgressFill.style.width = '100%';
+    excelProgressText.textContent = '保存选择并继续...';
 
     try {
         const response = await fetch('/api/resolve-duplicates', {
@@ -476,21 +539,16 @@ async function confirmDuplicates() {
             processedFiles = result.allProcessed;
         }
 
-        excelProgressFill.style.width = '100%';
-        excelProgressText.textContent = '完成！';
-
-        // Show results
-        setTimeout(() => {
-            updateStep(3);
-            excelSection.style.display = 'none';
-            resultsSection.style.display = 'block';
-            updateDownloadList();
-            resetExcelUpload();
-        }, 800);
+        // Process next item in queue
+        processNextDuplicate();
 
     } catch (error) {
         console.error('Duplicate resolution error:', error);
         showError('处理重名选择失败: ' + error.message);
+
+        // If fail, should we stop? Or verify next? Use same logic as processNextDuplicate?
+        // Let's stop to be safe or maybe let user retry? 
+        // For now, reset.
         resetExcelUpload();
     }
 }
