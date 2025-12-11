@@ -69,6 +69,32 @@ async function extractArchive(archivePath, extractPath) {
 
     try {
         if (ext === '.zip') {
+            // Try using system unzip with GBK encoding support first (common issue with Windows zips on Linux)
+            // The -O CP936 flag specifies GBK encoding
+            if (commandExists('unzip')) {
+                try {
+                    console.log('尝试使用系统 unzip 命令解压 (尝试 CP936 编码)...');
+                    // -o: overwrite
+                    // -O CP936: Specify character encoding as GBK (Windows Simplified Chinese)
+                    // -d: destination directory
+                    child_process.execSync(`unzip -o -O CP936 "${archivePath}" -d "${extractPath}"`, { stdio: 'ignore' });
+                    console.log('系统 unzip 解压成功');
+                    return;
+                } catch (cmdError) {
+                    console.log('系统 unzip 带编码参数失败，尝试标准 unzip...');
+                    try {
+                        // Try standard unzip without encoding flag (for MacOS or non-patched unzip)
+                        child_process.execSync(`unzip -o "${archivePath}" -d "${extractPath}"`, { stdio: 'ignore' });
+                        console.log('标准 unzip 解压成功');
+                        return;
+                    } catch (stdError) {
+                        console.log('系统 unzip 命令执行失败，回退到 node-adm-zip');
+                    }
+                }
+            }
+
+            // Fallback to AdmZip (Pure JS, but might have encoding issues with non-UTF8 names)
+            console.log('使用 AdmZip 解压...');
             const zip = new AdmZip(archivePath);
             zip.extractAllTo(extractPath, true);
         } else if (ext === '.rar') {
@@ -562,6 +588,10 @@ app.post('/api/upload-archive', upload.single('archive'), async (req, res) => {
 
         const sessionId = Date.now().toString();
         const extractPath = path.join(tempDir, sessionId);
+
+        console.log(`\n接收到压缩文件: ${req.file.originalname}`);
+        console.log(`文件大小: ${(req.file.size / 1024 / 1024).toFixed(2)} MB`);
+        console.log(`保存路径: ${req.file.path}`);
 
         // Extract archive
         await extractArchive(req.file.path, extractPath);
