@@ -294,7 +294,8 @@ function parseExcel(excelPath) {
             if (currentRoom && currentName) {
                 records.push({
                     room: currentRoom,
-                    name: currentName
+                    name: currentName,
+                    idCard: currentIdCard ? currentIdCard.toString().trim() : ''
                 });
             }
         } else {
@@ -320,6 +321,7 @@ function parseExcel(excelPath) {
 // Helper function to extract room and name from PDF filename
 function extractInfoFromFilename(filename) {
     // Pattern: .*-(\d+)-([^-]+)--.*\.pdf
+    // Reverted to strict matching for room/name separation to avoid capturing the prefix '2-' as room
     const match = filename.match(/.*?-(\d+)-([^-]+)--.*\.pdf$/i);
     if (match) {
         return {
@@ -370,10 +372,11 @@ function findMatchingPDFs(pdfDir, parseResult, session) {
             arrayOfFiles = arrayOfFiles || [];
 
             files.forEach(function (file) {
-                if (fs.statSync(dirPath + "/" + file).isDirectory()) {
-                    arrayOfFiles = getAllFiles(dirPath + "/" + file, arrayOfFiles);
+                const fullPath = path.join(dirPath, file);
+                if (fs.statSync(fullPath).isDirectory()) {
+                    arrayOfFiles = getAllFiles(fullPath, arrayOfFiles);
                 } else {
-                    arrayOfFiles.push(path.join(dirPath, file));
+                    arrayOfFiles.push(fullPath);
                 }
             });
 
@@ -401,7 +404,7 @@ function findMatchingPDFs(pdfDir, parseResult, session) {
                         normalizedName: normalizeName(info.name) // Pre-calculate normalized name
                     });
                 } else {
-                    // console.log(`无法解析文件名: ${filename}`);
+                    console.log(`⚠️ 无法解析文件名 (格式不匹配): ${filename}`);
                 }
             }
         });
@@ -428,7 +431,23 @@ function findMatchingPDFs(pdfDir, parseResult, session) {
                 matchedRecords.add(index);
                 matchedFiles.push(matchedPdf);
             } else {
-                console.log(`✗ 未匹配: 房号${record.room} - ${record.name}`);
+                console.log(`✗ 严格匹配失败: 房号${record.room} - ${record.name}`);
+
+                // Fallback: Try to find by name only
+                const nameMatches = pdfFiles.filter(pdf => pdf.normalizedName === normalizedRecordName);
+                if (nameMatches.length > 0) {
+                    console.log(`! 发现同名文件 (房号不匹配): ${nameMatches.length}个`);
+                    duplicates.push({
+                        name: record.name,
+                        idCard: record.idCard,
+                        recordIndex: index,
+                        options: nameMatches.map(pdf => ({
+                            filename: pdf.filename,
+                            path: pdf.path,
+                            room: pdf.room
+                        }))
+                    });
+                }
             }
         });
     } else {
