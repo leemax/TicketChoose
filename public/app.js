@@ -432,7 +432,7 @@ function showDuplicateModal(duplicates, pendingId, excelName) {
         item.className = 'duplicate-item';
 
         // Build options radio buttons
-        const optionsHtml = duplicate.options.map((option, optIndex) => `
+        let optionsHtml = duplicate.options.map((option, optIndex) => `
             <div class="pdf-option">
                 <input 
                     type="radio" 
@@ -447,6 +447,22 @@ function showDuplicateModal(duplicates, pendingId, excelName) {
                 </label>
             </div>
         `).join('');
+
+        // Add Skip option
+        optionsHtml += `
+            <div class="pdf-option" style="border-top: 1px dashed #eee; margin-top: 5px; padding-top: 5px;">
+                <input 
+                    type="radio" 
+                    id="dup-${index}-opt-skip" 
+                    name="duplicate-${index}" 
+                    value="SKIP"
+                >
+                <label for="dup-${index}-opt-skip" style="color: #666;">
+                    <span class="option-room">🚫</span>
+                    <span class="option-filename">不匹配此人 (跳过)</span>
+                </label>
+            </div>
+        `;
 
         item.innerHTML = `
             <div class="duplicate-header">
