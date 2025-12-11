@@ -2,6 +2,7 @@
 let sessionId = null;
 let processedFiles = []; // Track all processed files
 let pendingDuplicates = null; // Track current duplicate resolution state
+let duplicateQueue = []; // Queue for files requiring manual resolution
 
 // DOM Elements
 const archiveInput = document.getElementById('archiveInput');
@@ -258,15 +259,7 @@ excelDropZone.addEventListener('drop', (e) => {
     }
 });
 
-// Global state
-let sessionId = null;
-let processedFiles = []; // Track all processed files
-let pendingDuplicates = null; // Track current duplicate resolution state
-let duplicateQueue = []; // Queue for files requiring manual resolution
 
-// ... (DOM Elements and Utility Functions remain the same, start from handleExcelUpload logic) ...
-
-// ... (skip to Line 261 implementation) ...
 
 async function handleExcelUpload() {
     const files = Array.from(excelInput.files);
