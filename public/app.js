@@ -472,12 +472,24 @@ function showDuplicateModal(duplicates, pendingId, excelName) {
 
 function closeDuplicateModal() {
     document.getElementById('duplicateModal').style.display = 'none';
-    pendingDuplicates = null;
+
+    // If pendingDuplicates is still set, it means the user Cancelled (didn't Confirm)
+    if (pendingDuplicates) {
+        console.log("用户取消了当前文件的重名处理:", pendingDuplicates.excelName);
+        pendingDuplicates = null;
+
+        // Treat as "Skip current file resolution" and move to next
+        // Use setTimeout to ensure UI updates finish
+        setTimeout(() => {
+            processNextDuplicate();
+        }, 100);
+    }
 }
 
 async function confirmDuplicates() {
     if (!pendingDuplicates) return;
 
+    // Capture data needed for API call before clearing global state
     const { duplicates, pendingId } = pendingDuplicates;
     const selections = [];
 
@@ -499,8 +511,13 @@ async function confirmDuplicates() {
         return;
     }
 
+    // Clear global state to signal "Confirmed" intention to closeDuplicateModal
+    pendingDuplicates = null;
+
     // Close modal and show processing
+    // Since pendingDuplicates is null, closeDuplicateModal WON'T trigger processNextDuplicate
     closeDuplicateModal();
+
     // Don't hide dropzone yet, we might show modal again.
     // Show progress overlay? Or just keep "ExcelProgress" visible but maybe update text.
     excelDropZone.style.display = 'none';
@@ -539,9 +556,7 @@ async function confirmDuplicates() {
         console.error('Duplicate resolution error:', error);
         showError('处理重名选择失败: ' + error.message);
 
-        // If fail, should we stop? Or verify next? Use same logic as processNextDuplicate?
-        // Let's stop to be safe or maybe let user retry? 
-        // For now, reset.
+        // If fail, reset upload UI
         resetExcelUpload();
     }
 }
