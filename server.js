@@ -58,6 +58,32 @@ function commandExists(command) {
     }
 }
 
+// Helper function to check archive integrity
+function checkArchiveIntegrity(archivePath) {
+    const ext = path.extname(archivePath).toLowerCase();
+
+    if (ext === '.zip') {
+        if (commandExists('unzip')) {
+            try {
+                console.log('正在校验 ZIP 文件完整性...');
+                // -t: test integrity
+                // -q: quiet (less output)
+                child_process.execSync(`unzip -t -q "${archivePath}"`, { stdio: 'ignore' });
+                console.log('完整性校验通过');
+                return true;
+            } catch (error) {
+                console.error('完整性校验失败: 文件可能已损坏或未上传完整');
+                return false;
+            }
+        }
+        // If no unzip command, skip check or try AdmZip (AdmZip.test() is not reliable for truncation detection)
+        console.log('未检测到 unzip 命令，跳过系统级完整性校验');
+        return true;
+    }
+    // Skip check for other formats or implement specific checks
+    return true;
+}
+
 // Helper function to extract archive
 async function extractArchive(archivePath, extractPath) {
     const ext = path.extname(archivePath).toLowerCase();
@@ -112,6 +138,10 @@ async function extractArchive(archivePath, extractPath) {
         throw error;
     }
 }
+
+// Helper function to parse Excel
+// Helper function to format name (insert spaces for Chinese names)
+// ... (rest of code)
 
 // Helper function to parse Excel
 // Helper function to format name (insert spaces for Chinese names)
@@ -592,6 +622,13 @@ app.post('/api/upload-archive', upload.single('archive'), async (req, res) => {
         console.log(`\n接收到压缩文件: ${req.file.originalname}`);
         console.log(`文件大小: ${(req.file.size / 1024 / 1024).toFixed(2)} MB`);
         console.log(`保存路径: ${req.file.path}`);
+
+        // Integrity Check
+        if (!checkArchiveIntegrity(req.file.path)) {
+            // Cleanup
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({ error: '文件上传不完整或已损坏，请重新上传' });
+        }
 
         // Extract archive
         await extractArchive(req.file.path, extractPath);
