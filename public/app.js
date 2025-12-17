@@ -261,6 +261,16 @@ excelDropZone.addEventListener('drop', (e) => {
 
 
 
+// Helper: wrap fetch with timeout
+function fetchWithTimeout(url, options, timeoutMs = 60000) {
+    return Promise.race([
+        fetch(url, options),
+        new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('请求超时，请检查网络或稍后重试')), timeoutMs)
+        )
+    ]);
+}
+
 async function handleExcelUpload() {
     const files = Array.from(excelInput.files);
 
@@ -287,58 +297,80 @@ async function handleExcelUpload() {
     // Reset queue for this batch
     duplicateQueue = [];
 
+    // Track failed files for user feedback
+    const failedFiles = [];
+
     try {
         // Process files sequentially
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            const progress = ((i + 1) / files.length) * 100;
+            const progress = ((i + 0.5) / files.length) * 100; // Start at 50% of this file's portion
 
             excelProgressFill.style.width = progress + '%';
             excelProgressText.textContent = `处理中... ${i + 1}/${files.length} - ${file.name}`;
+
+            // Allow UI to update before processing
+            await new Promise(resolve => setTimeout(resolve, 50));
 
             const formData = new FormData();
             formData.append('excel', file);
             formData.append('sessionId', sessionId);
 
-            const response = await fetch('/api/upload-excel', {
-                method: 'POST',
-                body: formData
-            });
+            try {
+                // Use timeout wrapper - 60 seconds per file
+                const response = await fetchWithTimeout('/api/upload-excel', {
+                    method: 'POST',
+                    body: formData
+                }, 60000);
 
-            const result = await response.json();
+                const result = await response.json();
 
-            if (!response.ok) {
-                // If one file fails (e.g. format error), we log it but continue? 
-                // Currently throwing error stops everything. Let's log and continue to be robust.
-                console.error(`处理 ${file.name} 失败: ${result.error}`);
-                // throw new Error(`处理 ${file.name} 失败: ${result.error || '未知错误'}`);
-                // Better UX: continue but show error later? For now, let's stick to simple "log and continue" or throw?
-                // Request says "don't affect other tables". So we should log and continue.
+                if (!response.ok) {
+                    console.error(`处理 ${file.name} 失败: ${result.error}`);
+                    failedFiles.push({ name: file.name, error: result.error || '处理失败' });
+                    continue;
+                }
+
+                // Check if there are duplicates that need resolution
+                if (result.hasDuplicates) {
+                    console.log(`检测到重名乘客 (${file.name})，加入待处理队列`);
+
+                    // Add to queue instead of blocking
+                    duplicateQueue.push({
+                        duplicates: result.duplicates,
+                        pendingId: result.pendingId,
+                        excelName: file.name
+                    });
+
+                    // IMPORTANT: Do NOT return here. Continue to next file.
+                }
+
+                // Update processed files list
+                if (result.allProcessed) {
+                    processedFiles = result.allProcessed;
+                }
+
+            } catch (fileError) {
+                console.error(`处理文件 ${file.name} 时出错:`, fileError);
+                failedFiles.push({ name: file.name, error: fileError.message });
+                // Continue to next file instead of stopping
                 continue;
             }
 
-            // Check if there are duplicates that need resolution
-            if (result.hasDuplicates) {
-                console.log(`检测到重名乘客 (${file.name})，加入待处理队列`);
-
-                // Add to queue instead of blocking
-                duplicateQueue.push({
-                    duplicates: result.duplicates,
-                    pendingId: result.pendingId,
-                    excelName: file.name
-                });
-
-                // IMPORTANT: Do NOT return here. Continue to next file.
-            }
-
-            // Update processed files list (if this file succeeded, or even if it's pending, others might be done)
-            if (result.allProcessed) {
-                processedFiles = result.allProcessed;
-            }
+            // Update progress after successful processing
+            const finalProgress = ((i + 1) / files.length) * 100;
+            excelProgressFill.style.width = finalProgress + '%';
         }
 
         excelProgressFill.style.width = '100%';
         excelProgressText.textContent = `批量处理完成，正在检查待人工确认项...`;
+
+        // Show warning if some files failed
+        if (failedFiles.length > 0) {
+            const failedNames = failedFiles.map(f => f.name).join(', ');
+            console.warn(`以下文件处理失败: ${failedNames}`);
+            // Don't show error popup to avoid blocking flow, but log it
+        }
 
         // Check if we have queued duplicates
         if (duplicateQueue.length > 0) {
@@ -400,7 +432,21 @@ function resetExcelUpload() {
     excelProgressFill.style.width = '0%';
 }
 
-// ... (ContinueBtn handler remains same) ...
+// Continue button handler - allows uploading more Excel files
+continueBtn.addEventListener('click', () => {
+    // Hide results section, show excel upload section
+    resultsSection.style.display = 'none';
+    excelSection.style.display = 'block';
+
+    // Reset to step 2
+    updateStep(2);
+
+    // Reset excel input and upload area
+    excelInput.value = '';
+    resetExcelUpload();
+
+    console.log('继续上传更多Excel文件');
+});
 
 // Duplicate Resolution Functions
 function showDuplicateModal(duplicates, pendingId, excelName) {
